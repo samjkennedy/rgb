@@ -1,5 +1,7 @@
 #![allow(arithmetic_overflow)]
+use std::collections::HashMap;
 use std::env;
+use std::time::SystemTime;
 
 mod cart;
 mod cpu;
@@ -13,17 +15,66 @@ use cpu::CPU;
 use joypad::Joypad;
 
 //sdl
+use sdl2::controller::{Axis, Button};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
-use std::time::SystemTime;
 
 use crate::cart::Cart;
 use crate::cpu::Interrupt;
 use crate::joypad::JoypadButton;
 use crate::mmu::{MMU, RAM_START};
 use crate::ppu::{Palette, PPU};
+
+struct ControlsMap {
+    keyboard_mapping: HashMap<Keycode, JoypadButton>,
+    controller_mapping: HashMap<Button, JoypadButton>,
+}
+
+impl ControlsMap {
+    //TODO: eventually read these from a settings file
+    fn new() -> ControlsMap {
+        let mut keyboard_mapping = HashMap::new();
+
+        keyboard_mapping.insert(Keycode::Right, JoypadButton::Right);
+        keyboard_mapping.insert(Keycode::Left, JoypadButton::Left);
+        keyboard_mapping.insert(Keycode::Up, JoypadButton::Up);
+        keyboard_mapping.insert(Keycode::Down, JoypadButton::Down);
+
+        keyboard_mapping.insert(Keycode::X, JoypadButton::A);
+        keyboard_mapping.insert(Keycode::Z, JoypadButton::B);
+        keyboard_mapping.insert(Keycode::LShift, JoypadButton::Select);
+        keyboard_mapping.insert(Keycode::Return, JoypadButton::Start);
+
+        let mut controller_mapping = HashMap::new();
+
+        //TODO: stick configuration?
+
+        controller_mapping.insert(Button::DPadRight, JoypadButton::Right);
+        controller_mapping.insert(Button::DPadLeft, JoypadButton::Left);
+        controller_mapping.insert(Button::DPadUp, JoypadButton::Up);
+        controller_mapping.insert(Button::DPadDown, JoypadButton::Down);
+
+        controller_mapping.insert(Button::A, JoypadButton::A);
+        controller_mapping.insert(Button::B, JoypadButton::B);
+        controller_mapping.insert(Button::Start, JoypadButton::Start);
+        controller_mapping.insert(Button::Back, JoypadButton::Select);
+
+        return ControlsMap {
+            keyboard_mapping,
+            controller_mapping,
+        };
+    }
+
+    fn get_keyboard_button(&self, keycode: Keycode) -> Option<&JoypadButton> {
+        return self.keyboard_mapping.get(&keycode);
+    }
+
+    fn get_controller_button(&self, button: Button) -> Option<&JoypadButton> {
+        return self.controller_mapping.get(&button);
+    }
+}
 
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
@@ -78,6 +129,35 @@ fn main() -> Result<(), String> {
     };
 
     let joypad = Joypad::new();
+
+    //TODO: handle when no controllers detected
+    let controls_map = ControlsMap::new();
+
+    let game_controller_subsystem = sdl_context.game_controller()?;
+
+    let available = game_controller_subsystem
+        .num_joysticks()
+        .map_err(|e| format!("can't enumerate joysticks: {}", e))?;
+
+    // Iterate over all available joysticks and look for game controllers.
+    let controller = (0..available).find_map(|id| {
+        if !game_controller_subsystem.is_game_controller(id) {
+            println!("{} is not a game controller", id);
+            return None;
+        }
+
+        match game_controller_subsystem.open(id) {
+            Ok(c) => {
+                // We managed to find and open a game controller,
+                // exit the loop
+                Some(c)
+            }
+            Err(e) => {
+                println!("failed: {:?}", e);
+                None
+            }
+        }
+    });
 
     let mut cpu = CPU::new();
     let mut mmu = MMU::new(cart.rom, joypad);
@@ -146,110 +226,70 @@ fn main() -> Result<(), String> {
                     keycode: Some(Keycode::F1),
                     ..
                 } => cpu.enable_logging = !cpu.enable_logging,
-
-                //TODO: Match based on a key mapping, not hard coded keys
-                //Key pressed
-                Event::KeyDown {
-                    keycode: Some(Keycode::Right),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::Right);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Left),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::Left);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Up),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::Up);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Down),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::Down);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::X),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::A);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Z),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::B);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::LShift),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::Select);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Return),
-                    ..
-                } => {
-                    mmu.press_button(JoypadButton::Start);
-                }
-                //Key released
                 Event::KeyUp {
                     keycode: Some(Keycode::Space),
                     ..
                 } => limit = true,
-                Event::KeyUp {
-                    keycode: Some(Keycode::Right),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::Right);
+
+                Event::KeyDown { keycode, .. } => match keycode {
+                    Some(code) => match controls_map.get_keyboard_button(code) {
+                        Some(joypad_button) => mmu.press_button(joypad_button),
+                        None => {}
+                    },
+                    None => {}
+                },
+                Event::KeyUp { keycode, .. } => match keycode {
+                    Some(code) => match controls_map.get_keyboard_button(code) {
+                        Some(joypad_button) => mmu.release_button(joypad_button),
+                        None => {}
+                    },
+                    None => {}
+                },
+
+                //TODO: This isn't configurable
+                Event::ControllerAxisMotion { axis, value, .. } => {
+                    let dead_zone = 10_000; //TODO: configurable
+
+                    if value > dead_zone || value < -dead_zone {
+                        match axis {
+                            Axis::LeftX => {
+                                if value > 0 {
+                                    mmu.press_button(&JoypadButton::Right);
+                                } else {
+                                    mmu.press_button(&JoypadButton::Left);
+                                }
+                            }
+                            Axis::LeftY => {
+                                if value > 0 {
+                                    mmu.press_button(&JoypadButton::Down);
+                                } else {
+                                    mmu.press_button(&JoypadButton::Up);
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        mmu.release_button(&JoypadButton::Right);
+                        mmu.release_button(&JoypadButton::Left);
+                        mmu.release_button(&JoypadButton::Up);
+                        mmu.release_button(&JoypadButton::Down);
+                    }
                 }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Left),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::Left);
+
+                Event::ControllerButtonDown { button, .. } => {
+                    match controls_map.get_controller_button(button) {
+                        Some(joypad_button) => mmu.press_button(joypad_button),
+                        None => {}
+                    }
                 }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Up),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::Up);
+
+                Event::ControllerButtonUp { button, .. } => {
+                    match controls_map.get_controller_button(button) {
+                        Some(joypad_button) => mmu.release_button(joypad_button),
+                        None => {}
+                    }
                 }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Down),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::Down);
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::X),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::A);
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Z),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::B);
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::LShift),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::Select);
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Return),
-                    ..
-                } => {
-                    mmu.release_button(JoypadButton::Start);
-                }
+
                 _ => {}
             }
         }

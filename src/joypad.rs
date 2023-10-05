@@ -6,6 +6,7 @@ pub enum ButtonMode {
     Direction,
 }
 
+#[derive(Copy, Clone)]
 pub enum JoypadButton {
     Right,
     Left,

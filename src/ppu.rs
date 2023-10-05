@@ -1,6 +1,6 @@
 use crate::{
     cpu::Interrupt,
-    mmu::{get_bit, MMU, RAM_START},
+    mmu::{get_bit, is_bit, MMU, RAM_START},
 };
 
 pub struct Palette {
@@ -28,16 +28,12 @@ impl PPU {
             pixels: [0; 256 * 256],
         };
     }
-    //TODO: only render what's in the 160x144 viewport because this is S L O W
-    //      also optimise this bad boy because it's called 256 times per FRAME
+
     pub fn scanline(&mut self, mmu: &mut MMU) {
         let last_scanline = mmu.read(0xFF44);
 
-        let scanline = if last_scanline == 153 {
-            0
-        } else {
-            last_scanline + 1
-        };
+        let scanline = (last_scanline + 1) % 154;
+
         mmu.write(0xFF44, scanline);
 
         if scanline == 144 {
@@ -76,9 +72,6 @@ impl PPU {
         let bg_tile_data_area_end = bg_tile_data_area_start + 0x20;
 
         let mut scroll_x = mmu.read(0xFF43);
-
-        //So each scanline is a row of pixels not tiles
-        //for a given scanline, only retrieve one row's tiles and only render one row of that tile
 
         for address in bg_tile_data_area_start..bg_tile_data_area_end {
             let tile_idx = mmu.read(address);
@@ -173,7 +166,7 @@ impl PPU {
             let t_idx = mmu.read(oam_address + (4 * sprite_idx) + 2);
             let attrs = mmu.read(oam_address + (4 * sprite_idx) + 3);
 
-            let mode_16x8 = (lcdc & 0b0000_0100) > 0;
+            let mode_16x8 = is_bit(lcdc, 2);
             if mode_16x8 {
                 panic!("16x8 mode is not yet implemented");
             }

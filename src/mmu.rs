@@ -15,6 +15,10 @@ pub fn get_bit(byte: u8, bit: u8) -> u8 {
     return if byte & (1 << bit) > 0 { 1 } else { 0 };
 }
 
+pub fn is_bit(byte: u8, bit: u8) -> bool {
+    return byte & (1 << bit) > 0;
+}
+
 impl MMU {
     pub fn new(rom: Vec<u8>, joypad: Joypad) -> MMU {
         let mut ram: [u8; 0x8000] = [0; 0x8000];
@@ -78,10 +82,10 @@ impl MMU {
         }
     }
 
-    pub fn press_button(&mut self, button: JoypadButton) {
+    pub fn press_button(&mut self, button: &JoypadButton) {
         let joypad_state = self.read(0xFF00);
 
-        let button_ord = button as u8;
+        let button_ord = *button as u8;
         self.joypad.state |= 1 << button_ord;
 
         //should only fire an interrupt if the input is selected by bits 5/6
@@ -93,8 +97,8 @@ impl MMU {
         }
     }
 
-    pub fn release_button(&mut self, button: JoypadButton) {
-        let button_ord = button as u8;
+    pub fn release_button(&mut self, button: &JoypadButton) {
+        let button_ord = *button as u8;
         self.joypad.state &= !(1 << button_ord);
     }
 

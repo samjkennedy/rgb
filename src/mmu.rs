@@ -15,6 +15,10 @@ pub fn get_bit(byte: u8, bit: u8) -> u8 {
     return if byte & (1 << bit) > 0 { 1 } else { 0 };
 }
 
+pub fn is_bit(byte: u8, bit: u8) -> bool {
+    return byte & (1 << bit) > 0;
+}
+
 impl MMU {
     pub fn new(rom: Vec<u8>, joypad: Joypad) -> MMU {
         let mut ram: [u8; 0x8000] = [0; 0x8000];

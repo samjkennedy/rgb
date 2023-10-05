@@ -112,8 +112,7 @@ fn main() -> Result<(), String> {
                 cpu.tick(&mut mmu, ticks);
                 ticks += 1;
             }
-
-            ppu.scanline(&mut mmu); //TODO: This is a huge performance hit, optimise this call
+            ppu.scanline(&mut mmu);
             scanline += 1;
         }
         mmu.set_interrupt_flag(Interrupt::VBlank, false);
